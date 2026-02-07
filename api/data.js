@@ -1,93 +1,119 @@
 // api/data.js
+// Supabase integration for persistent storage
 
-// Simple in-memory store (resets on function cold start)
-let lastData = null;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+
+// Validate environment variables
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.warn('⚠️ Supabase not configured. Set SUPABASE_URL and SUPABASE_KEY in Vercel environment variables.');
+}
 
 export default async function handler(req, res) {
-  // ===== CORS HEADERS =====
+  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Coinglass-Extension');
-  res.setHeader('Access-Control-Max-Age', '86400');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // ===== HANDLE PREFLIGHT =====
-  if (req.method === 'OPTIONS') {
-    return res.status(200).json({ success: true });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // ===== HANDLE GET REQUEST (Show data in browser) =====
+  // ===== GET: Return data =====
   if (req.method === 'GET') {
-    // Try to get from Vercel KV first (if available)
     try {
-      const stored = await kv.get('coinglass:last_data');
-      if (stored) {
-        return res.status(200).json({
-          status: 'success',
-          source: 'vercel_kv',
-          data: stored,
-          last_updated: new Date(stored.timestamp).toLocaleString()
-        });
-      }
-    } catch (e) {
-      // KV not configured, fall through to memory
-    }
+      // Get query parameters
+      const { limit = 1, timeframe } = req.query;
+      
+      // Build query
+      let query = `
+        SELECT * FROM coinglass_data 
+        ${timeframe ? `WHERE timeframe = '${timeframe}'` : ''}
+        ORDER BY timestamp DESC 
+        LIMIT ${Math.min(parseInt(limit), 100)}
+      `;
 
-    // Fall back to in-memory storage
-    if (lastData) {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc?query=${encodeURIComponent(query)}`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('Supabase GET error:', error);
+        return res.status(500).json({ error: 'Failed to fetch data' });
+      }
+
+      const data = await response.json();
+
       return res.status(200).json({
         status: 'success',
-        source: 'memory',
-        data: lastData,
-        last_updated: new Date(lastData.timestamp).toLocaleString(),
-        warning: 'Using in-memory storage (resets on cold start). For persistent storage, configure Vercel KV.'
+        count: data.length,
+        data: data,
+        query: { limit: parseInt(limit), timeframe: timeframe || 'all' }
+      });
+
+    } catch (error) {
+      console.error('GET handler error:', error);
+      return res.status(500).json({ 
+        error: 'Server error', 
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined 
       });
     }
-
-    return res.status(404).json({
-      status: 'empty',
-      message: 'No data received yet. Visit Coinglass page and use the extension to send data.'
-    });
   }
 
-  // ===== HANDLE POST REQUEST (From extension) =====
+  // ===== POST: Store data from extension =====
   if (req.method === 'POST') {
     try {
-      const data = req.body;
-
-      // Validate payload
-      if (!data || !data.longPercent || !data.shortPercent) {
+      const body = req.body;
+      
+      // Validate required fields
+      if (!body?.longPercent || !body?.shortPercent) {
         return res.status(400).json({ 
           error: 'Invalid payload',
           required: ['longPercent', 'shortPercent'] 
         });
       }
 
-      // Store data
-      lastData = {
-        longPercent: data.longPercent,
-        shortPercent: data.shortPercent,
-        longVolume: data.longVolume,
-        shortVolume: data.shortVolume,
-        timeframe: data.timeframe,
-        timestamp: data.timestamp || new Date().toISOString(),
-        url: data.url
+      // Prepare data for Supabase
+      const payload = {
+        long_percent: body.longPercent,
+        short_percent: body.shortPercent,
+        long_volume: body.longVolume || null,
+        short_volume: body.shortVolume || null,
+        timeframe: body.timeframe || '4 hour',
+        timestamp: body.timestamp || new Date().toISOString(),
+        url: body.url || 'https://www.coinglass.com/LongShortRatio'
       };
 
-      // Save to Vercel KV (if available)
-      try {
-        await kv.set('coinglass:last_data', lastData, { ex: 86400 }); // 24h expiry
-      } catch (e) {
-        console.log('KV not configured or failed:', e.message);
+      // Insert into Supabase
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/coinglass_data`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('Supabase POST error:', error);
+        return res.status(500).json({ error: 'Failed to store data' });
       }
 
-      // Log to console
-      console.log('✅ [COINGLASS_DATA]', JSON.stringify(lastData, null, 2));
-
-      // Return success
+      const result = await response.json();
+      
+      console.log('✅ [COINGLASS_DATA]', payload);
+      
       return res.status(200).json({
         success: true,
-        received: lastData,
-        message: 'Data stored successfully'
+        inserted: result[0],
+        message: 'Data stored in Supabase'
       });
 
     } catch (error) {
@@ -99,7 +125,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // ===== INVALID METHOD =====
   return res.status(405).json({ 
     error: 'Method not allowed', 
     allowed: ['GET', 'POST', 'OPTIONS'] 
