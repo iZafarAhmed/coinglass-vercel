@@ -1,19 +1,7 @@
 {
-  "name": "coinglass-vercel-api",
+  "name": "coinglass-api",
   "version": "1.0.0",
-  "description": "Vercel API endpoint for Coinglass Chrome extension",
-  "main": "api/data.js",
   "scripts": {
-    "dev": "vercel dev",
-    "deploy": "vercel --prod"
-  },
-  "dependencies": {
-    "@vercel/node": "^3.0.1"
-  },
-  "devDependencies": {
-    "vercel": "^34.0.0"
-  },
-  "engines": {
-    "node": ">=18.x"
+    "dev": "vercel dev"
   }
 }
