@@ -1,13 +1,8 @@
 // api/data.js
-// Supabase integration for persistent storage
+// Minimal, working version - NO CRASHES
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
-
-// Validate environment variables
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.warn('⚠️ Supabase not configured. Set SUPABASE_URL and SUPABASE_KEY in Vercel environment variables.');
-}
 
 export default async function handler(req, res) {
   // CORS headers
@@ -15,69 +10,78 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
-  // ===== GET: Return data =====
-  if (req.method === 'GET') {
-    try {
-      // Get query parameters
-      const { limit = 1, timeframe } = req.query;
-      
-      // Build query
-      let query = `
-        SELECT * FROM coinglass_data 
-        ${timeframe ? `WHERE timeframe = '${timeframe}'` : ''}
-        ORDER BY timestamp DESC 
-        LIMIT ${Math.min(parseInt(limit), 100)}
-      `;
+  // Check if Supabase is configured
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    console.error('❌ Supabase not configured');
+    return res.status(500).json({
+      error: 'Supabase not configured',
+      message: 'Add SUPABASE_URL and SUPABASE_KEY in Vercel environment variables'
+    });
+  }
 
-      const response = await fetch(``${SUPABASE_URL}/rest/v1/coinglass_data?select=*&order=timestamp.desc&limit=${limit}`, {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json'
+  try {
+    // ===== GET: Return latest data =====
+    if (req.method === 'GET') {
+      // Get limit from query string (simple parsing)
+      const url = new URL(req.url, `https://${req.headers.host}`);
+      const limit = Math.min(parseInt(url.searchParams.get('limit')) || 1, 100);
+
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/coinglass_data?select=*&order=timestamp.desc&limit=${limit}`,
+        {
+          method: 'GET',
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`
+          }
         }
-      });
+      );
 
       if (!response.ok) {
         const error = await response.json();
-        console.error('Supabase GET error:', error);
+        console.error('Supabase error:', error);
+        
+        if (error.message?.includes('relation') || error.message?.includes('does not exist')) {
+          return res.status(404).json({
+            error: 'Table not found',
+            message: 'Run SQL script to create "coinglass_data" table in Supabase'
+          });
+        }
+        
         return res.status(500).json({ error: 'Failed to fetch data' });
       }
 
       const data = await response.json();
 
-      return res.status(200).json({
-        status: 'success',
-        count: data.length,
-        data: data,
-        query: { limit: parseInt(limit), timeframe: timeframe || 'all' }
-      });
-
-    } catch (error) {
-      console.error('GET handler error:', error);
-      return res.status(500).json({ 
-        error: 'Server error', 
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined 
-      });
-    }
-  }
-
-  // ===== POST: Store data from extension =====
-  if (req.method === 'POST') {
-    try {
-      const body = req.body;
-      
-      // Validate required fields
-      if (!body?.longPercent || !body?.shortPercent) {
-        return res.status(400).json({ 
-          error: 'Invalid payload',
-          required: ['longPercent', 'shortPercent'] 
+      if (data.length === 0) {
+        return res.status(404).json({
+          status: 'empty',
+          message: 'No data yet. Use extension on Coinglass page to send data.'
         });
       }
 
-      // Prepare data for Supabase
+      return res.status(200).json({
+        status: 'success',
+        count: data.length,
+         data
+      });
+    }
+
+    // ===== POST: Store data =====
+    if (req.method === 'POST') {
+      const body = req.body;
+      
+      if (!body?.longPercent || !body?.shortPercent) {
+        return res.status(400).json({ 
+          error: 'Missing required fields: longPercent, shortPercent' 
+        });
+      }
+
       const payload = {
         long_percent: body.longPercent,
         short_percent: body.shortPercent,
@@ -88,14 +92,12 @@ export default async function handler(req, res) {
         url: body.url || 'https://www.coinglass.com/LongShortRatio'
       };
 
-      // Insert into Supabase
       const response = await fetch(`${SUPABASE_URL}/rest/v1/coinglass_data`, {
         method: 'POST',
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
       });
@@ -108,25 +110,23 @@ export default async function handler(req, res) {
 
       const result = await response.json();
       
-      console.log('✅ [COINGLASS_DATA]', payload);
+      console.log('✅ Data stored:', payload);
       
       return res.status(200).json({
         success: true,
-        inserted: result[0],
+        inserted: result[0] || payload,
         message: 'Data stored in Supabase'
       });
-
-    } catch (error) {
-      console.error('❌ [API_ERROR]', error);
-      return res.status(500).json({ 
-        error: 'Processing failed',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
     }
-  }
 
-  return res.status(405).json({ 
-    error: 'Method not allowed', 
-    allowed: ['GET', 'POST', 'OPTIONS'] 
-  });
+    // Invalid method
+    return res.status(405).json({ error: 'Method not allowed' });
+
+  } catch (error) {
+    console.error('❌ Handler error:', error);
+    return res.status(500).json({ 
+      error: 'Server error',
+      details: error.message 
+    });
+  }
 }
