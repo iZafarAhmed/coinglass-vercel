@@ -31,8 +31,8 @@ export default async function handler(req, res) {
         LIMIT ${Math.min(parseInt(limit), 100)}
       `;
 
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc?query=${encodeURIComponent(query)}`, {
-        method: 'POST',
+      const response = await fetch(``${SUPABASE_URL}/rest/v1/coinglass_data?select=*&order=timestamp.desc&limit=${limit}`, {
+        method: 'GET',
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`,
