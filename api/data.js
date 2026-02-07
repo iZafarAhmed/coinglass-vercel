@@ -32,7 +32,7 @@ export default async function handler(req, res) {
       `;
 
       const response = await fetch(``${SUPABASE_URL}/rest/v1/coinglass_data?select=*&order=timestamp.desc&limit=${limit}`, {
-        method: 'GET',
+        method: 'POST',
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`,
