@@ -1,7 +1,12 @@
 {
   "name": "coinglass-api",
   "version": "1.0.0",
+  "type": "module",  // 👈 ADD THIS LINE (FIXES THE WARNING)
   "scripts": {
-    "dev": "vercel dev"
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@vercel/node": "^3.0.1"
   }
 }
