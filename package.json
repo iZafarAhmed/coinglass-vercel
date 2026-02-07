@@ -1,9 +1,12 @@
 {
   "name": "coinglass-api",
   "version": "1.0.0",
-  "type": "module",  // ← MUST HAVE THIS
+  "type": "module",
   "scripts": {
     "dev": "vercel dev",
     "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@vercel/node": "^3.0.1"
   }
 }
