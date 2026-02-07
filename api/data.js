@@ -1,37 +1,24 @@
-// api/data.js
-// CORRECT Supabase REST API syntax
+// api/data.js - ADD VALIDATION
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
 export default async function handler(req, res) {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Check if Supabase is configured
   if (!SUPABASE_URL || !SUPABASE_KEY) {
-    console.error('❌ Supabase not configured');
-    return res.status(500).json({
-      error: 'Supabase not configured',
-      message: 'Add SUPABASE_URL and SUPABASE_KEY in Vercel environment variables'
-    });
+    return res.status(500).json({ error: 'Supabase not configured' });
   }
 
   try {
-    // ===== GET: Return latest data =====
     if (req.method === 'GET') {
-      // Parse limit from query string
       const url = new URL(req.url, `https://${req.headers.host}`);
       const limit = Math.min(parseInt(url.searchParams.get('limit')) || 1, 100);
 
-      // CORRECT Supabase REST API syntax
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/coinglass_data?select=*&order=timestamp.desc.nullslast&limit=${limit}`,
         {
@@ -46,16 +33,7 @@ export default async function handler(req, res) {
       if (!response.ok) {
         const error = await response.json();
         console.error('Supabase error:', error);
-        
-        // Table doesn't exist
-        if (error.message?.includes('relation') || error.message?.includes('does not exist')) {
-          return res.status(404).json({
-            error: 'Table not found',
-            message: 'Run SQL script to create "coinglass_data" table in Supabase'
-          });
-        }
-        
-        return res.status(500).json({ error: 'Failed to fetch data', details: error });
+        return res.status(500).json({ error: 'Failed to fetch data' });
       }
 
       const data = await response.json();
@@ -67,28 +45,27 @@ export default async function handler(req, res) {
         });
       }
 
-      return res.status(200).json({
-        status: 'success',
-        count: data.length,
-        data: data
-      });
+      return res.status(200).json({ status: 'success', count: data.length, data });
     }
 
-    // ===== POST: Store data =====
     if (req.method === 'POST') {
       const body = req.body;
       
-      if (!body?.longPercent || !body?.shortPercent) {
+      // VALIDATE REQUIRED FIELDS (snake_case)
+      if (!body?.long_percent || !body?.short_percent) {
+        console.error('Missing required fields:', Object.keys(body));
         return res.status(400).json({ 
-          error: 'Missing required fields: longPercent, shortPercent' 
+          error: 'Missing required fields',
+          required: ['long_percent', 'short_percent'],
+          received: body ? Object.keys(body) : 'no data'
         });
       }
 
       const payload = {
-        long_percent: body.longPercent,
-        short_percent: body.shortPercent,
-        long_volume: body.longVolume || null,
-        short_volume: body.shortVolume || null,
+        long_percent: body.long_percent,
+        short_percent: body.short_percent,
+        long_volume: body.long_volume || null,
+        short_volume: body.short_volume || null,
         timeframe: body.timeframe || '4 hour',
         timestamp: body.timestamp || new Date().toISOString(),
         url: body.url || 'https://www.coinglass.com/LongShortRatio'
@@ -113,7 +90,7 @@ export default async function handler(req, res) {
 
       const result = await response.json();
       
-      console.log('✅ Data stored:', payload);
+      console.log('✅ [COINGLASS_DATA]', payload);
       
       return res.status(200).json({
         success: true,
@@ -122,14 +99,10 @@ export default async function handler(req, res) {
       });
     }
 
-    // Invalid method
     return res.status(405).json({ error: 'Method not allowed' });
 
   } catch (error) {
     console.error('❌ Handler error:', error);
-    return res.status(500).json({ 
-      error: 'Server error',
-      details: error.message 
-    });
+    return res.status(500).json({ error: 'Server error', details: error.message });
   }
 }
