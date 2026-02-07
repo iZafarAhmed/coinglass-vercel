@@ -1,5 +1,5 @@
 // api/data.js
-// Minimal, working version - NO CRASHES
+// CORRECT Supabase REST API syntax
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
@@ -27,12 +27,13 @@ export default async function handler(req, res) {
   try {
     // ===== GET: Return latest data =====
     if (req.method === 'GET') {
-      // Get limit from query string (simple parsing)
+      // Parse limit from query string
       const url = new URL(req.url, `https://${req.headers.host}`);
       const limit = Math.min(parseInt(url.searchParams.get('limit')) || 1, 100);
 
+      // CORRECT Supabase REST API syntax
       const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/coinglass_data?select=*&order=timestamp.desc&limit=${limit}`,
+        `${SUPABASE_URL}/rest/v1/coinglass_data?select=*&order=timestamp.desc.nullslast&limit=${limit}`,
         {
           method: 'GET',
           headers: {
@@ -46,6 +47,7 @@ export default async function handler(req, res) {
         const error = await response.json();
         console.error('Supabase error:', error);
         
+        // Table doesn't exist
         if (error.message?.includes('relation') || error.message?.includes('does not exist')) {
           return res.status(404).json({
             error: 'Table not found',
@@ -53,7 +55,7 @@ export default async function handler(req, res) {
           });
         }
         
-        return res.status(500).json({ error: 'Failed to fetch data' });
+        return res.status(500).json({ error: 'Failed to fetch data', details: error });
       }
 
       const data = await response.json();
@@ -68,7 +70,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         status: 'success',
         count: data.length,
-         data
+        data: data
       });
     }
 
@@ -97,7 +99,8 @@ export default async function handler(req, res) {
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
         },
         body: JSON.stringify(payload)
       });
@@ -105,7 +108,7 @@ export default async function handler(req, res) {
       if (!response.ok) {
         const error = await response.json();
         console.error('Supabase POST error:', error);
-        return res.status(500).json({ error: 'Failed to store data' });
+        return res.status(500).json({ error: 'Failed to store data', details: error });
       }
 
       const result = await response.json();
