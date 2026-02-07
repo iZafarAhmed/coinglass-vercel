@@ -1,5 +1,4 @@
 // api/data.js
-import { kv } from '@vercel/kv'; // Optional: Remove if not using KV
 
 // Simple in-memory store (resets on function cold start)
 let lastData = null;
