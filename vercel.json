@@ -1,20 +1,11 @@
 {
-  "functions": {
-    "api/data.js": {
-      "maxDuration": 10
-    }
-  },
   "headers": [
     {
       "source": "/api/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, X-Coinglass-Extension" }
+        { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" }
       ]
     }
-  ],
-  "rewrites": [
-    { "source": "/data", "destination": "/api/data" }
   ]
 }
